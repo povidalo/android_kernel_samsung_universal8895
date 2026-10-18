@@ -472,8 +472,14 @@ static int process_discover_svids(void *data)
 		 * on Pin assignment.If DP use 4lane(Pin Assignment C,E,A),
 		 * dp_hs_connect is 1. USB can support HS.If DP use 2lane(Pin Assigment B,D,F), dp_hs_connect is 0. USB
 		 * can support SS
+		 *
+		 * The pin assignment is not chosen yet (that happens on DP
+		 * Status Update / Attention), so keep SuperSpeed for now;
+		 * dp_select_usb_speed() turns it off if a 4-lane assignment
+		 * is selected. (Was hardcoded to 1: no USB 3 with any DP
+		 * dock, even with Pin D.)
 		 */
-		 usbpd_data->dp_hs_connect = 1;
+		 usbpd_data->dp_hs_connect = 0;
 
 		ccic_event_work(usbpd_data,
 				CCIC_NOTIFY_DEV_DP, CCIC_NOTIFY_ID_DP_CONNECT,
@@ -620,6 +626,26 @@ static int process_enter_mode(void *data)
 	return 0;
 }
 
+/*
+ * Once the DP pin assignment is chosen, tell xHCI whether USB SuperSpeed can
+ * stay: a 4-lane assignment (A, C, E) uses the SuperSpeed lanes for DP, a
+ * 2-lane one (B, D, F) leaves them to USB. xHCI powers its SuperSpeed port
+ * off for hs_connect=1 and on for 0 (ccic_xhci_handle_notification).
+ */
+static void dp_select_usb_speed(struct s2mm005_data *usbpd_data, int pin)
+{
+	int hs = pin == CCIC_NOTIFY_DP_PIN_A || pin == CCIC_NOTIFY_DP_PIN_C ||
+		 pin == CCIC_NOTIFY_DP_PIN_E;
+
+	pr_info("%s: %s -> USB %s\n", __func__, DP_Pin_Assignment_Print[pin],
+		hs ? "high-speed only" : "SuperSpeed kept");
+	if (usbpd_data->dp_hs_connect == hs)
+		return;
+	usbpd_data->dp_hs_connect = hs;
+	ccic_event_work(usbpd_data, CCIC_NOTIFY_DEV_USB_DP,
+		CCIC_NOTIFY_ID_USB_DP, usbpd_data->dp_is_connect, hs, 0);
+}
+
 static int process_attention(void *data)
 {
 	struct s2mm005_data *usbpd_data = data;
@@ -698,6 +724,7 @@ static int process_attention(void *data)
 				}
 			}
 			usbpd_data->dp_selected_pin = pin_assignment;
+			dp_select_usb_speed(usbpd_data, pin_assignment);
 
 			dev_info(&i2c->dev, "%s multi_func_preference %d  %s\n",
 				 __func__, multi_func_preference,
@@ -814,6 +841,7 @@ static int process_dp_status_update(void *data)
 					}
 				}
 				usbpd_data->dp_selected_pin = pin_assignment;
+				dp_select_usb_speed(usbpd_data, pin_assignment);
 
 				dev_info(&i2c->dev, "%s multi_func_preference %d  %s\n", __func__,
 					 multi_func_preference, DP_Pin_Assignment_Print[pin_assignment]);
