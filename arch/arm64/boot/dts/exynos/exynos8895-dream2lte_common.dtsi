@@ -3419,3 +3419,20 @@
 		};
 	};
 };
+
+/*
+ * Headless server: no CPU throttling below 90 C. The big cluster's power
+ * allocator (exynos8895.dtsi, mngs-thermal) switched on at 55 C (mngs-alert0,
+ * the last active trip) and steered the cores to 83 C (mngs-alert1, passive),
+ * so it could cap them anywhere above 55 C. Now it switches on at 90 C and
+ * steers to 93 C, below the thermal driver's big-core hotplug-out at 96 C.
+ * The little cluster has no throttling below 115 C anyway; mngs-hot (115 C)
+ * is unchanged.
+ */
+&mngs_alert0 {
+	temperature = <90000>;
+};
+
+&mngs_alert1 {
+	temperature = <93000>;
+};
